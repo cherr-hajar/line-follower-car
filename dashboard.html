@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ESP32 Line Follower</title>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Rajdhani:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0d0d1a;
+      --bg2:      #13132a;
+      --bg3:      #1a1a35;
+      --border:   rgba(255,255,255,0.06);
+      --text:     #e8eaf6;
+      --muted:    #7b7fa8;
+      --cyan:     #00f5ff;
+      --pink:     #ff2d8a;
+      --purple:   #a855f7;
+      --green:    #00ff88;
+      --amber:    #ffb800;
+      --mono:     'Orbitron', monospace;
+      --sans:     'Rajdhani', sans-serif;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: var(--sans);
+      font-size: 15px;
+      min-height: 100vh;
+      padding: 20px;
+    }
+
+    
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 24px;
+      padding-bottom: 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .logo {
+      font-family: var(--mono);
+      font-size: 16px;
+      font-weight: 900;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: 0.1em;
+    }
+
+    .header-sub {
+      font-size: 12px;
+      color: var(--muted);
+      font-family: var(--mono);
+      letter-spacing: 0.08em;
+    }
+
+    .live-badge {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      border: 1px solid;
+      letter-spacing: 0.08em;
+    }
+
+    .live-badge.connected {
+      color: var(--green);
+      border-color: var(--green);
+      box-shadow: 0 0 12px rgba(0,255,136,0.2);
+    }
+
+    .live-badge.disconnected {
+      color: var(--pink);
+      border-color: var(--pink);
+    }
+
+    .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+    .dot.pulse { animation: pulse 1.2s ease-in-out infinite; }
+
+    @keyframes pulse {
+      0%,100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.3; transform: scale(0.7); }
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .metric {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .metric::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+    }
+
+    .metric-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      margin-bottom: 8px;
+    }
+
+    .metric-value {
+      font-family: var(--mono);
+      font-size: 28px;
+      font-weight: 700;
+      line-height: 1;
+      background: linear-gradient(135deg, var(--cyan), var(--purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .metric-unit {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 5px;
+      font-family: var(--sans);
+    }
+
+    .state-badge {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 4px 10px;
+      border-radius: 4px;
+      letter-spacing: 0.05em;
+    }
+
+    .state-AVANCER    { background: rgba(0,255,136,0.12); color: var(--green); border: 1px solid rgba(0,255,136,0.3); }
+    .state-STOP       { background: rgba(255,45,138,0.12); color: var(--pink);  border: 1px solid rgba(255,45,138,0.3); }
+    .state-GAUCHE     { background: rgba(0,245,255,0.12);  color: var(--cyan);  border: 1px solid rgba(0,245,255,0.3); }
+    .state-DROITE     { background: rgba(255,184,0,0.12);  color: var(--amber); border: 1px solid rgba(255,184,0,0.3); }
+    .state-CORRECTION { background: rgba(0,245,255,0.12);  color: var(--cyan);  border: 1px solid rgba(0,245,255,0.3); }
+    .state-RECHERCHE  { background: rgba(255,184,0,0.12);  color: var(--amber); border: 1px solid rgba(255,184,0,0.3); }
+
+    .panels {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .panel {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+    }
+
+    .panel-title {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      letter-spacing: 0.12em;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .panel-title::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+    }
+
+    .sensors { display: flex; gap: 8px; }
+
+    .sensor-cell {
+      flex: 1;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 6px;
+      text-align: center;
+      background: var(--bg3);
+      transition: all 0.2s;
+    }
+
+    .sensor-cell.on {
+      background: rgba(0,255,136,0.08);
+      border-color: var(--green);
+      box-shadow: 0 0 14px rgba(0,255,136,0.15);
+    }
+
+    .s-name {
+      font-family: var(--mono);
+      font-size: 8px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      margin-bottom: 8px;
+    }
+
+    .sensor-cell.on .s-name { color: var(--green); }
+
+    .s-val {
+      font-family: var(--mono);
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--muted);
+    }
+
+    .sensor-cell.on .s-val { color: var(--green); }
+
+    .sensor-circle {
+      width: 32px; height: 32px;
+      border-radius: 50%;
+      border: 2px solid var(--border);
+      margin: 0 auto 6px;
+      display: flex; align-items: center; justify-content: center;
+      transition: all 0.2s;
+    }
+
+    .sensor-cell.on .sensor-circle {
+      border-color: var(--green);
+      box-shadow: 0 0 10px rgba(0,255,136,0.4);
+      background: rgba(0,255,136,0.1);
+    }
+
+    .sensor-dot {
+      width: 10px; height: 10px;
+      border-radius: 50%;
+      background: var(--border);
+      transition: all 0.2s;
+    }
+
+    .sensor-cell.on .sensor-dot {
+      background: var(--green);
+      box-shadow: 0 0 6px var(--green);
+    }
+
+    .sensor-pins {
+      font-family: var(--mono);
+      font-size: 8px;
+      color: var(--muted);
+      text-align: center;
+      margin-top: 10px;
+      letter-spacing: 0.05em;
+    }
+
+    .motor-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+    }
+
+    .motor-item:last-of-type { margin-bottom: 0; }
+
+    .motor-name {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      width: 40px;
+      flex-shrink: 0;
+      letter-spacing: 0.06em;
+    }
+
+    .bar-bg {
+      flex: 1;
+      height: 8px;
+      background: var(--bg3);
+      border-radius: 4px;
+      overflow: hidden;
+    }
+
+    .bar-fill {
+      height: 100%;
+      border-radius: 4px;
+      background: linear-gradient(90deg, var(--cyan), var(--purple));
+      transition: width 0.25s ease;
+    }
+
+    .bar-fill.rev {
+      background: linear-gradient(90deg, var(--pink), var(--amber));
+    }
+
+    .motor-pct {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--cyan);
+      width: 40px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+
+    .motor-pct.rev { color: var(--pink); }
+
+    .motor-pins {
+      font-family: var(--mono);
+      font-size: 8px;
+      color: var(--muted);
+      margin-top: 12px;
+      line-height: 1.8;
+      letter-spacing: 0.04em;
+    }
+
+    .circles-row {
+      display: flex;
+      gap: 12px;
+      justify-content: space-around;
+      margin-bottom: 12px;
+    }
+
+    .circle-wrap {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .circle-wrap svg { transform: rotate(-90deg); }
+
+    .circle-track { fill: none; stroke: var(--bg3); stroke-width: 6; }
+    .circle-fill  { fill: none; stroke-width: 6; stroke-linecap: round; transition: stroke-dashoffset 0.4s ease; }
+
+    .circle-label {
+      font-family: var(--mono);
+      font-size: 9px;
+      color: var(--muted);
+      letter-spacing: 0.08em;
+      text-align: center;
+    }
+
+    .circle-val {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: 700;
+      text-align: center;
+    }
+
+    .traj-wrap {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+
+    .traj-canvas {
+      width: 100%;
+      height: 130px;
+      display: block;
+      background: var(--bg3);
+      border-radius: 8px;
+    }
+
+    .log-wrap {
+      background: var(--bg2);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 14px 16px;
+      max-height: 95px;
+      overflow-y: auto;
+      margin-bottom: 12px;
+    }
+
+    .log-line {
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      line-height: 2;
+      letter-spacing: 0.04em;
+    }
+
+    .log-line .ts { color: rgba(123,127,168,0.5); margin-right: 10px; }
+    .log-line.new { color: var(--cyan); }
+
+    .footer {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
+      font-family: var(--mono);
+      font-size: 10px;
+      color: var(--muted);
+      letter-spacing: 0.06em;
+    }
+    .batt-row { display: flex; align-items: center; gap: 8px; margin-top: 6px; }
+
+    .batt-bar-bg {
+      flex: 1; height: 5px;
+      background: var(--bg3);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .batt-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.5s, background 0.5s;
+    }
+
+    @media (max-width: 600px) {
+      .panels { grid-template-columns: 1fr; }
+      body { padding: 12px; }
+      .circles-row { flex-wrap: wrap; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="header">
+    <div>
+      <div class="logo">LINE FOLLOWER</div>
+      <div class="header-sub">ESP32 · REAL-TIME DASHBOARD</div>
+    </div>
+    <div class="live-badge disconnected" id="live-badge">
+      <div class="dot" id="live-dot"></div>
+      <span id="live-text">DISCONNECTED</span>
+    </div>
+  </div>
+  <div class="circles-row" style="background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:12px;">
+    <div class="circle-wrap">
+      <svg width="70" height="70" viewBox="0 0 70 70">
+        <circle class="circle-track" cx="35" cy="35" r="28"/>
+        <circle class="circle-fill" id="cp-speed" cx="35" cy="35" r="28"
+          stroke="url(#g1)"
+          stroke-dasharray="175.9"
+          stroke-dashoffset="175.9"/>
+        <defs>
+          <linearGradient id="g1" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#00f5ff"/>
+            <stop offset="100%" stop-color="#a855f7"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="circle-val" style="color:var(--cyan)" id="cv-speed">0%</div>
+      <div class="circle-label">SPEED</div>
+    </div>
+
+    <div class="circle-wrap">
+      <svg width="70" height="70" viewBox="0 0 70 70">
+        <circle class="circle-track" cx="35" cy="35" r="28"/>
+        <circle class="circle-fill" id="cp-batt" cx="35" cy="35" r="28"
+          stroke="url(#g2)"
+          stroke-dasharray="175.9"
+          stroke-dashoffset="0"/>
+        <defs>
+          <linearGradient id="g2" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#00ff88"/>
+            <stop offset="100%" stop-color="#00f5ff"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="circle-val" style="color:var(--green)" id="cv-batt">--%</div>
+      <div class="circle-label">BATTERY</div>
+    </div>
+
+    <div class="circle-wrap">
+      <svg width="70" height="70" viewBox="0 0 70 70">
+        <circle class="circle-track" cx="35" cy="35" r="28"/>
+        <circle class="circle-fill" id="cp-ram" cx="35" cy="35" r="28"
+          stroke="url(#g3)"
+          stroke-dasharray="175.9"
+          stroke-dashoffset="87.9"/>
+        <defs>
+          <linearGradient id="g3" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#ff2d8a"/>
+            <stop offset="100%" stop-color="#a855f7"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="circle-val" style="color:var(--purple)" id="cv-ram">-- KB</div>
+      <div class="circle-label">FREE RAM</div>
+    </div>
+
+    <div class="circle-wrap">
+      <svg width="70" height="70" viewBox="0 0 70 70">
+        <circle class="circle-track" cx="35" cy="35" r="28"/>
+        <circle class="circle-fill" id="cp-dist" cx="35" cy="35" r="28"
+          stroke="url(#g4)"
+          stroke-dasharray="175.9"
+          stroke-dashoffset="175.9"/>
+        <defs>
+          <linearGradient id="g4" x1="0%" y1="0%" x2="100%" y2="0%">
+            <stop offset="0%" stop-color="#ffb800"/>
+            <stop offset="100%" stop-color="#ff2d8a"/>
+          </linearGradient>
+        </defs>
+      </svg>
+      <div class="circle-val" style="color:var(--amber)" id="cv-dist">0 cm</div>
+      <div class="circle-label">DISTANCE</div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;justify-content:center;align-items:center;gap:8px;flex:1;">
+      <div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.1em;">STATE</div>
+      <div id="state-badge"><span class="state-badge state-STOP">STOP</span></div>
+      <div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:0.1em;margin-top:8px;">UPTIME</div>
+      <div style="font-family:var(--mono);font-size:14px;font-weight:700;color:var(--cyan)" id="uptime-val">00:00:00</div>
+    </div>
+  </div>
+
+  <div class="panels">
+    <div class="panel">
+      <div class="panel-title">IR SENSORS</div>
+      <div class="sensors">
+        <div class="sensor-cell" id="sc-left">
+          <div class="sensor-circle"><div class="sensor-dot"></div></div>
+          <div class="s-name">LEFT</div>
+          <div class="s-val" id="sv-left">---</div>
+        </div>
+        <div class="sensor-cell" id="sc-center">
+          <div class="sensor-circle"><div class="sensor-dot"></div></div>
+          <div class="s-name">CENTER</div>
+          <div class="s-val" id="sv-center">---</div>
+        </div>
+        <div class="sensor-cell" id="sc-right">
+          <div class="sensor-circle"><div class="sensor-dot"></div></div>
+          <div class="s-name">RIGHT</div>
+          <div class="s-val" id="sv-right">---</div>
+        </div>
+      </div>
+      <div class="sensor-pins">GPIO 33 &nbsp;|&nbsp; GPIO 35 &nbsp;|&nbsp; GPIO 34</div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-title">MOTORS</div>
+      <div class="motor-item">
+        <div class="motor-name">RIGHT</div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-right" style="width:0%"></div></div>
+        <div class="motor-pct" id="pct-right">0%</div>
+      </div>
+      <div class="motor-item">
+        <div class="motor-name">LEFT</div>
+        <div class="bar-bg"><div class="bar-fill" id="bar-left" style="width:0%"></div></div>
+        <div class="motor-pct" id="pct-left">0%</div>
+      </div>
+      <div class="motor-pins">
+        ENA:25 &nbsp; IN1:26 &nbsp; IN2:27<br>
+        ENB:13 &nbsp; IN3:14 &nbsp; IN4:12
+      </div>
+    </div>
+  </div>
+
+  <div class="traj-wrap">
+    <div class="panel-title">TRAJECTORY</div>
+    <canvas class="traj-canvas" id="traj" role="img" aria-label="Robot trajectory"></canvas>
+  </div>
+
+  <div class="log-wrap" id="log-box">
+    <div class="log-line"><span class="ts">00:00:00</span>Waiting for car...</div>
+  </div>
+
+  <div class="footer">
+    <span>192.168.4.1 &nbsp;·&nbsp; PORT 81</span>
+    <span id="footer-uptime">UPTIME: --</span>
+  </div>
+
+<script>
+  const WS_URL = 'ws://192.168.4.1:81';
+  const CIRC = 175.9;
+  let ws, trajPoints = [], posX = 0.5, posY = 0.85, heading = 90, lastState = '';
+
+  const canvas = document.getElementById('traj');
+  const ctx = canvas.getContext('2d');
+
+  function resizeCanvas() {
+    canvas.width  = canvas.offsetWidth  * devicePixelRatio;
+    canvas.height = canvas.offsetHeight * devicePixelRatio;
+    ctx.scale(devicePixelRatio, devicePixelRatio);
+    drawTraj();
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  function drawTraj() {
+    const w = canvas.offsetWidth, h = canvas.offsetHeight;
+    ctx.clearRect(0, 0, w, h);
+    if (trajPoints.length < 2) return;
+    for (let i = 1; i < trajPoints.length; i++) {
+      const a = i / trajPoints.length;
+      ctx.beginPath();
+      ctx.strokeStyle = `rgba(0,245,255,${a * 0.85})`;
+      ctx.lineWidth = 2;
+      ctx.moveTo(trajPoints[i-1].x * w, trajPoints[i-1].y * h);
+      ctx.lineTo(trajPoints[i].x   * w, trajPoints[i].y   * h);
+      ctx.stroke();
+    }
+    const last = trajPoints[trajPoints.length - 1];
+    ctx.beginPath();
+    ctx.arc(last.x * w, last.y * h, 5, 0, Math.PI * 2);
+    ctx.fillStyle = '#00f5ff';
+    ctx.shadowColor = '#00f5ff';
+    ctx.shadowBlur = 8;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  function setCircle(id, pct) {
+    const el = document.getElementById(id);
+    if (el) el.style.strokeDashoffset = CIRC * (1 - Math.min(pct, 1));
+  }
+
+  function formatUptime(s) {
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    return `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(sec).padStart(2,'0')}`;
+  }
+
+  function addLog(msg, isNew) {
+    const box = document.getElementById('log-box');
+    const line = document.createElement('div');
+    line.className = 'log-line' + (isNew ? ' new' : '');
+    const ts = document.getElementById('uptime-val').textContent;
+    line.innerHTML = `<span class="ts">${ts}</span>${msg}`;
+    box.appendChild(line);
+    if (box.children.length > 30) box.removeChild(box.firstChild);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  function setMotor(barId, pctId, val) {
+    const pct = Math.abs(val) / 255 * 100;
+    const bar = document.getElementById(barId);
+    const label = document.getElementById(pctId);
+    bar.style.width = pct.toFixed(0) + '%';
+    bar.classList.toggle('rev', val < 0);
+    label.textContent = (val < 0 ? '-' : '') + pct.toFixed(0) + '%';
+    label.classList.toggle('rev', val < 0);
+  }
+
+  function getStateClass(s) {
+    if (s.includes('AVANCER'))    return 'state-AVANCER';
+    if (s.includes('STOP'))       return 'state-STOP';
+    if (s.includes('GAUCHE'))     return 'state-GAUCHE';
+    if (s.includes('DROITE'))     return 'state-DROITE';
+    if (s.includes('CORRECTION')) return 'state-CORRECTION';
+    if (s.includes('RECHERCHE'))  return 'state-RECHERCHE';
+    return 'state-STOP';
+  }
+
+  function onData(d) {
+    document.getElementById('state-badge').innerHTML =
+      `<span class="state-badge ${getStateClass(d.state)}">${d.state}</span>`;
+
+    const speed = Math.max(Math.abs(d.speedRight), Math.abs(d.speedLeft));
+    const speedPct = speed / 255;
+    setCircle('cp-speed', speedPct);
+    document.getElementById('cv-speed').textContent = Math.round(speedPct * 100) + '%';
+
+    const batt = Math.max(0, 100 - Math.floor(d.uptime / 36));
+    setCircle('cp-batt', batt / 100);
+    document.getElementById('cv-batt').textContent = batt + '%';
+
+    const ramPct = Math.min(d.freeHeap / 300, 1);
+    setCircle('cp-ram', ramPct);
+    document.getElementById('cv-ram').textContent = d.freeHeap + ' KB';
+
+    const distPct = Math.min(d.distance / 500, 1);
+    setCircle('cp-dist', distPct);
+    document.getElementById('cv-dist').textContent = d.distance + ' cm';
+
+    document.getElementById('uptime-val').textContent = formatUptime(d.uptime);
+    document.getElementById('footer-uptime').textContent = 'UPTIME: ' + formatUptime(d.uptime);
+
+    ['left','center','right'].forEach((k, i) => {
+      const active = [d.activeLeft, d.activeCenter, d.activeRight][i];
+      const val    = [d.sensorLeft, d.sensorCenter, d.sensorRight][i];
+      document.getElementById('sc-' + k).classList.toggle('on', active);
+      document.getElementById('sv-' + k).textContent = val;
+    });
+
+    setMotor('bar-right', 'pct-right', d.speedRight);
+    setMotor('bar-left',  'pct-left',  d.speedLeft);
+
+    if (d.state.includes('AVANCER'))     heading = 90;
+    else if (d.state.includes('GAUCHE')) heading += 12;
+    else if (d.state.includes('DROITE')) heading -= 12;
+    const rad = heading * Math.PI / 180;
+    posX = Math.min(0.95, Math.max(0.05, posX + Math.cos(rad) * 0.018));
+    posY = Math.min(0.95, Math.max(0.05, posY - Math.sin(rad) * 0.022));
+    trajPoints.push({ x: posX, y: posY });
+    if (trajPoints.length > 80) trajPoints.shift();
+    drawTraj();
+
+    if (d.state !== lastState) { addLog(d.state, true); lastState = d.state; }
+  }
+
+  function setConnected(val) {
+    const badge = document.getElementById('live-badge');
+    badge.className = 'live-badge ' + (val ? 'connected' : 'disconnected');
+    document.getElementById('live-dot').className = 'dot' + (val ? ' pulse' : '');
+    document.getElementById('live-text').textContent = val ? 'LIVE' : 'DISCONNECTED';
+  }
+
+  function connect() {
+    ws = new WebSocket(WS_URL);
+    ws.onopen    = () => { setConnected(true);  addLog('Connected to car !', true); };
+    ws.onclose   = () => { setConnected(false); addLog('Disconnected — retrying...', false); setTimeout(connect, 3000); };
+    ws.onerror   = () => ws.close();
+    ws.onmessage = (e) => { try { onData(JSON.parse(e.data)); } catch(err) {} };
+  }
+
+  connect();
+</script>
+</body>
+</html>
